@@ -19,8 +19,12 @@ import java.util.Map;
  */
 final class Json {
 
+    /** Deeper nesting is refused rather than overflowing the stack. */
+    static final int MAX_DEPTH = 256;
+
     private final String text;
     private int pos;
+    private int depth;
 
     private Json(String text) {
         this.text = text;
@@ -87,10 +91,11 @@ final class Json {
     }
 
     private Map<String, Object> readObject() {
+        enter();
         Map<String, Object> obj = new LinkedHashMap<>();
         pos++; // {
         skipWhitespace();
-        if (peek() == '}') { pos++; return obj; }
+        if (peek() == '}') { pos++; depth--; return obj; }
         while (true) {
             skipWhitespace();
             if (peek() != '"') throw error("expected a string key");
@@ -101,22 +106,23 @@ final class Json {
             obj.put(key, readValue());
             skipWhitespace();
             char c = next();
-            if (c == '}') return obj;
+            if (c == '}') { depth--; return obj; }
             if (c != ',') throw error("expected ',' or '}'");
         }
     }
 
     private List<Object> readArray() {
+        enter();
         List<Object> list = new ArrayList<>();
         pos++; // [
         skipWhitespace();
-        if (peek() == ']') { pos++; return list; }
+        if (peek() == ']') { pos++; depth--; return list; }
         while (true) {
             skipWhitespace();
             list.add(readValue());
             skipWhitespace();
             char c = next();
-            if (c == ']') return list;
+            if (c == ']') { depth--; return list; }
             if (c != ',') throw error("expected ',' or ']'");
         }
     }
@@ -188,6 +194,10 @@ final class Json {
             }
         }
         return Double.parseDouble(literal);
+    }
+
+    private void enter() {
+        if (++depth > MAX_DEPTH) throw error("nested deeper than " + MAX_DEPTH);
     }
 
     private void expectWord(String word) {

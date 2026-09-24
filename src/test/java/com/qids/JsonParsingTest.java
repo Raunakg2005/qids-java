@@ -45,6 +45,14 @@ class JsonParsingTest {
     }
 
     @Test
+    void deepNestingIsRefusedNotAStackOverflow() {
+        String deep = "[".repeat(100_000) + "]".repeat(100_000);
+        assertThrows(IllegalArgumentException.class, () -> Json.parse(deep));
+        String ok = "[".repeat(Json.MAX_DEPTH) + "]".repeat(Json.MAX_DEPTH);
+        assertEquals(1, ((List<?>) Json.parse(ok)).size());
+    }
+
+    @Test
     void signResultReadsFieldsByNameInAnyOrderWithExtras() throws IOException {
         // Tag fields reordered and an extra field added: the old regex found no tags.
         String body = "{\"status\":\"SIGNED_QUANTUM_SAFE\",\"document_id\":\"doc_server_named\","
