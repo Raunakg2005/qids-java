@@ -9,8 +9,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.Map;
 
 /**
  * Standard client for ETSI GS QKD 014 Key Delivery REST API.
@@ -57,15 +56,15 @@ public class ETSI014Client {
             throw new IOException("ETSI KMS returned HTTP " + response.statusCode() + ": " + response.body());
         }
 
-        String body = response.body();
+        Map<String, Object> body = parseResponse(response.body());
         ETSIStatus status = new ETSIStatus();
-        status.setSourceSaeId(extractJsonString(body, "source_SAE_ID", sourceSaeId));
-        status.setDestinationSaeId(extractJsonString(body, "destination_SAE_ID", destinationSaeId));
-        status.setSourceKmeId(extractJsonString(body, "source_KME_ID", ""));
-        status.setDestinationKmeId(extractJsonString(body, "destination_KME_ID", ""));
-        status.setKeySize(extractJsonInt(body, "key_size", 256));
-        status.setStoredKeyCount(extractJsonInt(body, "stored_key_count", 0));
-        status.setMaxKeyCount(extractJsonInt(body, "max_key_count", 1000));
+        status.setSourceSaeId(Json.string(body, "source_SAE_ID", sourceSaeId));
+        status.setDestinationSaeId(Json.string(body, "destination_SAE_ID", destinationSaeId));
+        status.setSourceKmeId(Json.string(body, "source_KME_ID", ""));
+        status.setDestinationKmeId(Json.string(body, "destination_KME_ID", ""));
+        status.setKeySize((int) Json.number(body, "key_size", 256L));
+        status.setStoredKeyCount((int) Json.number(body, "stored_key_count", 0L));
+        status.setMaxKeyCount((int) Json.number(body, "max_key_count", 1000L));
         return status;
     }
 
@@ -100,7 +99,7 @@ public class ETSI014Client {
         StringBuilder sb = new StringBuilder("{\"key_IDs\":[");
         for (int i = 0; i < keyIds.size(); i++) {
             if (i > 0) sb.append(",");
-            sb.append("{\"key_ID\":\"").append(keyIds.get(i)).append("\"}");
+            sb.append("{\"key_ID\":\"").append(escapeJson(keyIds.get(i))).append("\"}");
         }
         sb.append("]}");
 
@@ -119,13 +118,23 @@ public class ETSI014Client {
         return parseKeys(response.body(), 0);
     }
 
-    private static List<ETSIKey> parseKeys(String json, int defaultSizeBits) {
+    /**
+     * Keys are read by field name, in any order, alongside any extension
+     * fields ETSI GS QKD 014 allows (key_ID_extension, key_extension). The
+     * regex this replaced needed key_ID then key and nothing else, so a
+     * compliant response with an extension parsed to zero keys, silently.
+     */
+    static List<ETSIKey> parseKeys(String json, int defaultSizeBits) throws IOException {
         List<ETSIKey> result = new ArrayList<>();
-        Pattern pattern = Pattern.compile("\\{\\s*\"key_ID\"\\s*:\\s*\"([^\"]+)\"\\s*,\\s*\"key\"\\s*:\\s*\"([^\"]+)\"\\s*\\}");
-        Matcher matcher = pattern.matcher(json);
-        while (matcher.find()) {
-            String keyId = matcher.group(1);
-            String rawKey = matcher.group(2);
+        for (Object item : Json.array(parseResponse(json), "keys")) {
+            if (!(item instanceof Map)) continue;
+            @SuppressWarnings("unchecked")
+            Map<String, Object> key = (Map<String, Object>) item;
+            String keyId = Json.string(key, "key_ID", null);
+            String rawKey = Json.string(key, "key", null);
+            if (keyId == null || rawKey == null) {
+                throw new IOException("ETSI KMS returned a key without key_ID or key");
+            }
             byte[] keyBytes;
             try {
                 keyBytes = Base64.getDecoder().decode(rawKey);
@@ -138,16 +147,27 @@ public class ETSI014Client {
         return result;
     }
 
-    private static String extractJsonString(String json, String field, String defaultValue) {
-        Pattern p = Pattern.compile("\"" + field + "\"\\s*:\\s*\"([^\"]+)\"");
-        Matcher m = p.matcher(json);
-        return m.find() ? m.group(1) : defaultValue;
+    private static Map<String, Object> parseResponse(String json) throws IOException {
+        try {
+            return Json.parseObject(json);
+        } catch (IllegalArgumentException e) {
+            throw new IOException("ETSI KMS returned a response that is not a JSON object: " + e.getMessage(), e);
+        }
     }
 
-    private static int extractJsonInt(String json, String field, int defaultValue) {
-        Pattern p = Pattern.compile("\"" + field + "\"\\s*:\\s*([0-9]+)");
-        Matcher m = p.matcher(json);
-        return m.find() ? Integer.parseInt(m.group(1)) : defaultValue;
+    private static String escapeJson(String s) {
+        StringBuilder out = new StringBuilder(s.length() + 8);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '"' || c == '\\') {
+                out.append('\\').append(c);
+            } else if (c < 0x20) {
+                out.append(String.format("\\u%04x", (int) c));
+            } else {
+                out.append(c);
+            }
+        }
+        return out.toString();
     }
 
     private static byte[] hexStringToByteArray(String s) {

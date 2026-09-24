@@ -9,8 +9,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.Map;
 
 /**
  * Enterprise client for the Quantum Intrusion Detection System (QIDS).
@@ -165,36 +164,59 @@ public class QIDSClient {
         return out.toString();
     }
 
-    private static SignResult parseSignResult(String json, String defaultDocId) {
+    /**
+     * Fields are read by name from a real JSON parse. The regex this replaced
+     * needed the tag fields in one exact order, returned the requested
+     * document id (null when the gateway named the document) and stamped the
+     * local clock as the signing time.
+     */
+    static SignResult parseSignResult(String json, String requestedDocId) throws IOException {
+        Map<String, Object> obj = parseResponse(json);
         SignResult res = new SignResult();
-        res.setDocumentId(defaultDocId);
-        res.setDocumentHash(extractJsonString(json, "document_hash", ""));
-        res.setAlgorithm(extractJsonString(json, "algorithm", "QIDS-Toeplitz-SPRT-v1"));
-        res.setSignedAtUtcMs(System.currentTimeMillis());
+        res.setDocumentId(Json.string(obj, "document_id", requestedDocId));
+        res.setDocumentHash(Json.string(obj, "document_hash", ""));
+        res.setAlgorithm(Json.string(obj, "algorithm", ""));
+        res.setSignedAtUtcMs(Json.number(obj, "signed_at_utc_ms", 0L));
 
         List<SignatureTag> tags = new ArrayList<>();
-        Pattern p = Pattern.compile("\\{\\s*\"recipient_sae_id\"\\s*:\\s*\"([^\"]+)\"\\s*,\\s*\"hash_tag\"\\s*:\\s*\"([^\"]+)\"\\s*,\\s*\"tag_length_bits\"\\s*:\\s*([0-9]+)\\s*,\\s*\"key_id\"\\s*:\\s*\"([^\"]+)\"\\s*\\}");
-        Matcher m = p.matcher(json);
-        while (m.find()) {
-            tags.add(new SignatureTag(m.group(1), m.group(2), Integer.parseInt(m.group(3)), m.group(4)));
+        for (Object item : Json.array(obj, "signature_tags")) {
+            if (!(item instanceof Map)) continue;
+            @SuppressWarnings("unchecked")
+            Map<String, Object> tag = (Map<String, Object>) item;
+            tags.add(new SignatureTag(
+                    Json.string(tag, "recipient_sae_id", ""),
+                    Json.string(tag, "hash_tag", ""),
+                    (int) Json.number(tag, "tag_length_bits", 0L),
+                    Json.string(tag, "key_id", "")));
         }
         res.setSignatureTags(tags);
+
+        List<String> sources = new ArrayList<>();
+        for (Object source : Json.array(obj, "entropy_source")) {
+            if (source instanceof String) sources.add((String) source);
+        }
+        res.setEntropySource(sources);
+        res.setQkdBacked(Json.isTrue(obj, "qkd_backed"));
         return res;
     }
 
-    private static VerifyResult parseVerifyResult(String json, String defaultDocId) {
+    static VerifyResult parseVerifyResult(String json, String requestedDocId) throws IOException {
+        Map<String, Object> obj = parseResponse(json);
         VerifyResult res = new VerifyResult();
-        res.setDocumentId(defaultDocId);
-        // Fail closed: a response without a status must not read as ACCEPTED.
-        res.setStatus(extractJsonString(json, "status", "UNKNOWN"));
-        res.setValid(json.contains("\"is_valid\":true") || json.contains("\"is_valid\": true"));
-        res.setReason(extractJsonString(json, "reason", ""));
+        res.setDocumentId(Json.string(obj, "document_id", requestedDocId));
+        // Fail closed: a response without a status must not read as ACCEPTED,
+        // and only a JSON true - at the top level - is a valid signature.
+        res.setStatus(Json.string(obj, "status", "UNKNOWN"));
+        res.setValid(Json.isTrue(obj, "is_valid"));
+        res.setReason(Json.string(obj, "reason", ""));
         return res;
     }
 
-    private static String extractJsonString(String json, String field, String defaultValue) {
-        Pattern p = Pattern.compile("\"" + field + "\"\\s*:\\s*\"([^\"]+)\"");
-        Matcher m = p.matcher(json);
-        return m.find() ? m.group(1) : defaultValue;
+    private static Map<String, Object> parseResponse(String json) throws IOException {
+        try {
+            return Json.parseObject(json);
+        } catch (IllegalArgumentException e) {
+            throw new IOException("QIDS gateway returned a response that is not a JSON object: " + e.getMessage(), e);
+        }
     }
 }
