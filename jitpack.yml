@@ -1,0 +1,4 @@
+# JitPack has no Gradle wrapper to use otherwise and falls back to Gradle 4.8.1,
+# which cannot run on the JDK 17 it installs - every v1.3.2 build failed that way.
+jdk:
+  - openjdk17
