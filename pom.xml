@@ -5,11 +5,11 @@
 
     <groupId>com.qids</groupId>
     <artifactId>qids-java</artifactId>
-    <version>1.3.2</version>
+    <version>1.3.3</version>
     <packaging>jar</packaging>
 
     <name>QIDS Java SDK</name>
-    <description>Enterprise Java client library for Quantum Intrusion Detection System (QIDS)</description>
+    <description>Java client for Quantum Digital Signatures through a QIDS gateway</description>
     <url>https://github.com/Raunakg2005/qids-java</url>
 
     <licenses>
@@ -39,6 +39,15 @@
         <maven.compiler.target>17</maven.compiler.target>
     </properties>
 
+    <dependencies>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>5.11.3</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
     <build>
         <plugins>
             <plugin>
@@ -49,6 +58,11 @@
                     <source>17</source>
                     <target>17</target>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.2</version>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

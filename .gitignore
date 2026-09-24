@@ -6,3 +6,5 @@ target/
 *.jar
 .idea/
 *.iml
+# The Gradle wrapper jar must be committed: JitPack builds with ./gradlew.
+!gradle/wrapper/gradle-wrapper.jar

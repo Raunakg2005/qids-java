@@ -5,9 +5,9 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -25,17 +25,33 @@ public class QIDSClient {
 
     private final String serviceUrl;
     private final String nodeId;
+    /** Gateway API key (sk_live_... / sk_test_...). Every /api/v1 call needs it. */
+    private final String apiKey;
     private final HttpClient httpClient;
 
+    /**
+     * @deprecated the Gateway requires an API key; use
+     *             {@link #QIDSClient(String, String, String)}.
+     */
+    @Deprecated
     public QIDSClient(String serviceUrl, String nodeId) {
-        this(serviceUrl, nodeId, Duration.ofSeconds(10));
+        this(serviceUrl, nodeId, null, Duration.ofSeconds(10));
+    }
+
+    public QIDSClient(String serviceUrl, String nodeId, String apiKey) {
+        this(serviceUrl, nodeId, apiKey, Duration.ofSeconds(10));
     }
 
     public QIDSClient(String serviceUrl, String nodeId, Duration timeout) {
+        this(serviceUrl, nodeId, null, timeout);
+    }
+
+    public QIDSClient(String serviceUrl, String nodeId, String apiKey, Duration timeout) {
         this.serviceUrl = (serviceUrl != null && serviceUrl.endsWith("/"))
                 ? serviceUrl.substring(0, serviceUrl.length() - 1)
                 : serviceUrl;
         this.nodeId = nodeId;
+        this.apiKey = apiKey;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(timeout)
                 .build();
@@ -60,15 +76,20 @@ public class QIDSClient {
 
     /**
      * Submit a payload to the QIDS daemon to generate quantum-safe signatures.
+     *
+     * The payload travels as payload_b64, its exact bytes. Earlier versions sent
+     * new String(payload, UTF_8), which replaces every malformed byte with
+     * U+FFFD, so two different binary documents reached the gateway as the same
+     * text and a signature over one verified the other.
      */
     public SignResult sign(String docId, byte[] payload, List<String> recipients) throws IOException, InterruptedException {
         String url = serviceUrl + "/api/v1/sign";
-        String payloadStr = (payload != null) ? new String(payload, StandardCharsets.UTF_8) : "";
+        String payloadB64 = Base64.getEncoder().encodeToString(payload != null ? payload : new byte[0]);
 
         StringBuilder sb = new StringBuilder();
         sb.append("{")
           .append("\"document_id\":\"").append(escapeJson(docId)).append("\",")
-          .append("\"payload\":\"").append(escapeJson(payloadStr)).append("\",")
+          .append("\"payload_b64\":\"").append(payloadB64).append("\",")
           .append("\"recipients\":[");
         for (int i = 0; i < recipients.size(); i++) {
             if (i > 0) sb.append(",");
@@ -81,6 +102,7 @@ public class QIDSClient {
                 .POST(HttpRequest.BodyPublishers.ofString(sb.toString()))
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
+                .header("Authorization", "Bearer " + (apiKey == null ? "" : apiKey))
                 .build();
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
@@ -96,16 +118,17 @@ public class QIDSClient {
      */
     public VerifyResult verify(String docId, byte[] payload, String tag, String keyId) throws IOException, InterruptedException {
         String url = serviceUrl + "/api/v1/verify";
-        String payloadStr = (payload != null) ? new String(payload, StandardCharsets.UTF_8) : "";
+        String payloadB64 = Base64.getEncoder().encodeToString(payload != null ? payload : new byte[0]);
 
-        String json = String.format("{\"document_id\":\"%s\",\"payload\":\"%s\",\"hash_tag\":\"%s\",\"key_id\":\"%s\"}",
-                escapeJson(docId), escapeJson(payloadStr), escapeJson(tag), escapeJson(keyId));
+        String json = String.format("{\"document_id\":\"%s\",\"payload_b64\":\"%s\",\"hash_tag\":\"%s\",\"key_id\":\"%s\"}",
+                escapeJson(docId), payloadB64, escapeJson(tag), escapeJson(keyId));
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .POST(HttpRequest.BodyPublishers.ofString(json))
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
+                .header("Authorization", "Bearer " + (apiKey == null ? "" : apiKey))
                 .build();
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
@@ -125,9 +148,21 @@ public class QIDSClient {
         return b;
     }
 
+    /** JSON string escaping per RFC 8259: quote, backslash, and every control character. */
     private static String escapeJson(String s) {
         if (s == null) return "";
-        return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r");
+        StringBuilder out = new StringBuilder(s.length() + 8);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '"' || c == '\\') {
+                out.append('\\').append(c);
+            } else if (c < 0x20) {
+                out.append(String.format("\\u%04x", (int) c));
+            } else {
+                out.append(c);
+            }
+        }
+        return out.toString();
     }
 
     private static SignResult parseSignResult(String json, String defaultDocId) {
@@ -150,7 +185,8 @@ public class QIDSClient {
     private static VerifyResult parseVerifyResult(String json, String defaultDocId) {
         VerifyResult res = new VerifyResult();
         res.setDocumentId(defaultDocId);
-        res.setStatus(extractJsonString(json, "status", "ACCEPTED"));
+        // Fail closed: a response without a status must not read as ACCEPTED.
+        res.setStatus(extractJsonString(json, "status", "UNKNOWN"));
         res.setValid(json.contains("\"is_valid\":true") || json.contains("\"is_valid\": true"));
         res.setReason(extractJsonString(json, "reason", ""));
         return res;
