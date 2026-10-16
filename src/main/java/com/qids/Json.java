@@ -61,6 +61,17 @@ final class Json {
         return v instanceof Number ? ((Number) v).longValue() : fallback;
     }
 
+    static double decimal(Map<String, Object> obj, String key, double fallback) {
+        Object v = obj.get(key);
+        return v instanceof Number ? ((Number) v).doubleValue() : fallback;
+    }
+
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> object(Map<String, Object> obj, String key) {
+        Object v = obj.get(key);
+        return v instanceof Map ? (Map<String, Object>) v : new java.util.LinkedHashMap<>();
+    }
+
     /** True only for a JSON {@code true}; anything else, including absence, is false. */
     static boolean isTrue(Map<String, Object> obj, String key) {
         return Boolean.TRUE.equals(obj.get(key));

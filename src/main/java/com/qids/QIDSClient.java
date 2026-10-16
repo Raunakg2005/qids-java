@@ -26,6 +26,7 @@ public class QIDSClient {
     private final String nodeId;
     /** Gateway API key (sk_live_... / sk_test_...). Every /api/v1 call needs it. */
     private final String apiKey;
+    private final Duration timeout;
     private final HttpClient httpClient;
 
     /**
@@ -51,6 +52,9 @@ public class QIDSClient {
                 : serviceUrl;
         this.nodeId = nodeId;
         this.apiKey = apiKey;
+        // Applied to every request as well as to connecting: a gateway that
+        // accepts the connection and then stalls used to hang the caller.
+        this.timeout = timeout;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(timeout)
                 .build();
@@ -96,34 +100,56 @@ public class QIDSClient {
         }
         sb.append("]}");
 
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .POST(HttpRequest.BodyPublishers.ofString(sb.toString()))
-                .header("Content-Type", "application/json")
-                .header("Accept", "application/json")
-                .header("Authorization", "Bearer " + (apiKey == null ? "" : apiKey))
-                .build();
-
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() != 200) {
-            throw new IOException("QIDS sign returned HTTP " + response.statusCode() + ": " + response.body());
-        }
-
-        return parseSignResult(response.body(), docId);
+        return parseSignResult(post("sign", url, sb.toString()), docId);
     }
 
     /**
-     * Submit a signature tag to the QIDS daemon for validation.
+     * Verify one recipient's signature tag, as returned by {@link #sign}. The
+     * tag is presented as its recipient (recipient_sae_id), so each
+     * recipient's verification is attributed to that recipient rather than
+     * to the document's first one.
+     */
+    public VerifyResult verify(String docId, byte[] payload, SignatureTag tag) throws IOException, InterruptedException {
+        return verify(docId, payload, tag.getHashTag(), tag.getKeyId(), tag.getRecipientSaeId());
+    }
+
+    /**
+     * Verify a signature tag without naming the recipient presenting it; the
+     * gateway attributes it to the document's first recipient. Use
+     * {@link #verify(String, byte[], SignatureTag)} to verify as a specific
+     * recipient.
      */
     public VerifyResult verify(String docId, byte[] payload, String tag, String keyId) throws IOException, InterruptedException {
+        return verify(docId, payload, tag, keyId, null);
+    }
+
+    private VerifyResult verify(String docId, byte[] payload, String tag, String keyId, String recipientSaeId)
+            throws IOException, InterruptedException {
         String url = serviceUrl + "/api/v1/verify";
         String payloadB64 = Base64.getEncoder().encodeToString(payload != null ? payload : new byte[0]);
 
-        String json = String.format("{\"document_id\":\"%s\",\"payload_b64\":\"%s\",\"hash_tag\":\"%s\",\"key_id\":\"%s\"}",
-                escapeJson(docId), payloadB64, escapeJson(tag), escapeJson(keyId));
+        StringBuilder json = new StringBuilder();
+        json.append("{\"document_id\":\"").append(escapeJson(docId))
+            .append("\",\"payload_b64\":\"").append(payloadB64)
+            .append("\",\"hash_tag\":\"").append(escapeJson(tag))
+            .append("\",\"key_id\":\"").append(escapeJson(keyId)).append('"');
+        if (recipientSaeId != null && !recipientSaeId.isEmpty()) {
+            json.append(",\"recipient_sae_id\":\"").append(escapeJson(recipientSaeId)).append('"');
+        }
+        json.append('}');
 
+        return parseVerifyResult(post("verify", url, json.toString()), docId);
+    }
+
+    /**
+     * Authenticated JSON POST with the client's timeout. Returns the body of a
+     * 200 response; any other status throws a {@link QIDSException} (401, 403
+     * and 429 as its typed subclasses).
+     */
+    private String post(String op, String url, String json) throws IOException, InterruptedException {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
+                .timeout(timeout)
                 .POST(HttpRequest.BodyPublishers.ofString(json))
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
@@ -132,10 +158,9 @@ public class QIDSClient {
 
         HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() != 200) {
-            throw new IOException("QIDS verify returned HTTP " + response.statusCode() + ": " + response.body());
+            throw QIDSException.fromResponse(op, response);
         }
-
-        return parseVerifyResult(response.body(), docId);
+        return response.body();
     }
 
     private static byte[] toBytes(long val) {
@@ -209,6 +234,13 @@ public class QIDSClient {
         res.setStatus(Json.string(obj, "status", "UNKNOWN"));
         res.setValid(Json.isTrue(obj, "is_valid"));
         res.setReason(Json.string(obj, "reason", ""));
+        // Absent rates fail closed too: an unreported error rate reads as
+        // total disagreement, not as none.
+        res.setObservedErrorRate(Json.decimal(obj, "observed_error_rate", 1.0));
+        res.setThresholdErrorRate(Json.decimal(obj, "threshold_error_rate", 0.1111));
+        res.setThreat(Json.string(obj, "threat", "unknown"));
+        res.setConfidence(Json.decimal(obj, "confidence", 0.0));
+        res.setEvidence(Json.object(obj, "evidence"));
         return res;
     }
 
