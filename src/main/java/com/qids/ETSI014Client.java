@@ -155,12 +155,14 @@ public class ETSI014Client {
                 throw new IOException("ETSI KMS returned an empty key " + keyId);
             }
             // A key of the wrong size is a protocol error: reporting the
-            // requested size for it would hide a misbehaving KMS.
-            if (requestedSizeBits > 0 && keyBytes.length * 8 != requestedSizeBits) {
-                throw new IOException("ETSI KMS returned key " + keyId + " of " + keyBytes.length * 8
-                        + " bits, requested " + requestedSizeBits);
+            // requested size for it would hide a misbehaving KMS. Sizes are
+            // in bits, so a 100-bit key arrives as 13 bytes.
+            if (requestedSizeBits > 0 && keyBytes.length != (requestedSizeBits + 7) / 8) {
+                throw new IOException("ETSI KMS returned key " + keyId + " of " + keyBytes.length
+                        + " bytes, requested " + requestedSizeBits + " bits");
             }
-            result.add(new ETSIKey(keyId, keyBytes, keyBytes.length * 8));
+            int sizeBits = requestedSizeBits > 0 ? requestedSizeBits : keyBytes.length * 8;
+            result.add(new ETSIKey(keyId, keyBytes, sizeBits));
         }
         return result;
     }

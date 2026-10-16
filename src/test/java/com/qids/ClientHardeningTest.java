@@ -151,6 +151,9 @@ class ClientHardeningTest {
         List<ETSIKey> ok = ETSI014Client.parseKeys(keys(key48), 384);
         assertEquals(384, ok.get(0).getSizeBits());
 
+        String key13 = Base64.getEncoder().encodeToString(new byte[13]);
+        assertEquals(100, ETSI014Client.parseKeys(keys(key13), 100).get(0).getSizeBits());
+
         String key32 = Base64.getEncoder().encodeToString(new byte[32]);
         assertThrows(IOException.class, () -> ETSI014Client.parseKeys(keys(key32), 384),
                 "a 256-bit key was accepted as 384 bits");
