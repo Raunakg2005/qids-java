@@ -3,6 +3,7 @@ package com.qids;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
@@ -74,5 +75,17 @@ class QIDSClientGatewayTest {
         assertEquals("ACCEPTED", genuine.getStatus());
         assertFalse(substituted.isValid(), "a different binary document verified with the same signature");
         assertEquals("REJECTED", substituted.getStatus());
+        assertFalse(substituted.getThreat().isEmpty(), "a rejection carries no threat attribution");
+        assertEquals(1.0, substituted.getObservedErrorRate());
+
+        // Each recipient verifies its own tag as itself.
+        SignResult multi = client.sign(docId + "-m", BINARY_DOC, List.of("SAE_Bob", "SAE_Carol"));
+        for (SignatureTag t : multi.getSignatureTags()) {
+            assertTrue(client.verify(multi.getDocumentId(), BINARY_DOC, t).isValid(),
+                    t.getRecipientSaeId() + "'s tag rejected");
+        }
+
+        assertThrows(QIDSException.Unauthorized.class,
+                () -> new QIDSClient(url, "SAE_Alice", "sk_test_not_a_real_key").sign(docId + "-x", BINARY_DOC, List.of()));
     }
 }

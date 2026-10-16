@@ -1,6 +1,6 @@
 # QIDS Java SDK (`qids-java`)
 
-[![Version](https://img.shields.io/badge/version-v1.3.4-blue.svg)](https://github.com/Raunakg2005/qids-java)
+[![Version](https://img.shields.io/badge/version-v1.3.5-blue.svg)](https://github.com/Raunakg2005/qids-java)
 [![License](https://img.shields.io/badge/license-Proprietary-red.svg)](LICENSE)
 [![Java](https://img.shields.io/badge/Java-17%2B-orange.svg)](https://openjdk.org/)
 [![JitPack](https://jitpack.io/v/Raunakg2005/qids-java.svg)](https://jitpack.io/#Raunakg2005/qids-java)
@@ -22,7 +22,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.github.Raunakg2005:qids-java:v1.3.4'
+    implementation 'com.github.Raunakg2005:qids-java:v1.3.5'
 }
 ```
 
@@ -40,7 +40,7 @@ dependencies {
     <dependency>
         <groupId>com.github.Raunakg2005</groupId>
         <artifactId>qids-java</artifactId>
-        <version>v1.3.4</version>
+        <version>v1.3.5</version>
     </dependency>
 </dependencies>
 ```
@@ -70,15 +70,33 @@ public class Main {
         SignResult sig = client.sign("DOC-98104", payload, List.of("node-sae-02"));
         SignatureTag tag = sig.getSignatureTags().get(0);
 
-        VerifyResult result = client.verify("DOC-98104", payload, tag.getHashTag(), tag.getKeyId());
-        System.out.println("valid=" + result.isValid() + " status=" + result.getStatus());
-        // valid=true status=ACCEPTED
+        VerifyResult result = client.verify("DOC-98104", payload, tag);
+        System.out.println("valid=" + result.isValid() + " status=" + result.getStatus()
+                + " threat=" + result.getThreat());
+        // valid=true status=ACCEPTED threat=benign
     }
 }
 ```
 
 Document IDs are write-once per tenant: signing the same ID twice returns HTTP 409.
 Payloads travel as `payload_b64`, so binary documents are signed byte-for-byte.
+`verify(docId, payload, tag)` presents the tag as its recipient (`recipient_sae_id`), so each recipient's verification is attributed to that recipient. A `VerifyResult` carries the gateway's error rates and its threat attribution (`getThreat`, `getConfidence`, `getEvidence`).
+
+Every request, to the gateway and to an ETSI KMS, is bounded by the client's timeout (10 s by default; pass a `Duration` to the constructor). A request that runs past it throws `java.net.http.HttpTimeoutException`.
+
+#### Errors
+
+A non-200 response throws `QIDSException` (an `IOException`) carrying the status code and the gateway's `error`, `message`, `reason` and `required_permission` fields. The common cases have their own subclasses:
+
+```java
+try {
+    client.sign(docId, payload, recipients);
+} catch (QIDSException.RateLimited e) {
+    Thread.sleep(e.getRetryAfter().orElse(Duration.ofSeconds(60)).toMillis());
+} catch (QIDSException.Unauthorized e) {  // 401: missing or invalid API key
+} catch (QIDSException.Forbidden e) {     // 403: e.getRequiredPermission()
+}
+```
 
 ### 2. ETSI GS QKD 014 key delivery client
 
@@ -102,6 +120,8 @@ public class KeyConsumer {
     }
 }
 ```
+
+A key that is neither base64 nor hex, or whose size differs from the one requested, throws `IOException` rather than being returned short.
 
 ### 3. Wald SPRT link monitor
 

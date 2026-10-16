@@ -1,5 +1,9 @@
 package com.qids;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 /**
  * Outcome of a QIDS signature verification.
  *
@@ -13,6 +17,9 @@ public class VerifyResult {
     private double observedErrorRate;
     private double thresholdErrorRate;
     private String reason;
+    private String threat = "";
+    private double confidence;
+    private Map<String, Object> evidence = new LinkedHashMap<>();
 
     public VerifyResult() {}
 
@@ -43,4 +50,21 @@ public class VerifyResult {
 
     public String getReason() { return reason; }
     public void setReason(String reason) { this.reason = reason; }
+
+    /**
+     * The gateway's threat attribution: benign, forgery, replay,
+     * impersonation or unauthorized_verification.
+     */
+    public String getThreat() { return threat; }
+    public void setThreat(String threat) { this.threat = threat; }
+
+    /** The gateway's confidence in the threat attribution, 0 to 1. */
+    public double getConfidence() { return confidence; }
+    public void setConfidence(double confidence) { this.confidence = confidence; }
+
+    /** What the gateway's detectors saw, as parsed JSON (read-only). */
+    public Map<String, Object> getEvidence() { return Collections.unmodifiableMap(evidence); }
+    public void setEvidence(Map<String, Object> evidence) {
+        this.evidence = evidence == null ? new LinkedHashMap<>() : new LinkedHashMap<>(evidence);
+    }
 }

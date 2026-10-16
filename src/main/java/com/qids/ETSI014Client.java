@@ -25,6 +25,7 @@ public class ETSI014Client {
     private final String baseUrl;
     private final String sourceSaeId;
     private final String destinationSaeId;
+    private final Duration timeout;
     private final HttpClient httpClient;
 
     public ETSI014Client(String baseUrl, String sourceSaeId, String destinationSaeId) {
@@ -35,6 +36,9 @@ public class ETSI014Client {
         this.baseUrl = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         this.sourceSaeId = sourceSaeId;
         this.destinationSaeId = destinationSaeId;
+        // Applied to every request, not only to connecting: a KMS that
+        // accepts the connection and then stalls used to hang the caller.
+        this.timeout = timeout;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(timeout)
                 .build();
@@ -47,6 +51,7 @@ public class ETSI014Client {
         String url = String.format("%s/api/v1/keys/%s/status", baseUrl, destinationSaeId);
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
+                .timeout(timeout)
                 .GET()
                 .header("Accept", "application/json")
                 .build();
@@ -77,6 +82,7 @@ public class ETSI014Client {
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
+                .timeout(timeout)
                 .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
@@ -105,6 +111,7 @@ public class ETSI014Client {
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
+                .timeout(timeout)
                 .POST(HttpRequest.BodyPublishers.ofString(sb.toString()))
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
@@ -124,7 +131,7 @@ public class ETSI014Client {
      * regex this replaced needed key_ID then key and nothing else, so a
      * compliant response with an extension parsed to zero keys, silently.
      */
-    static List<ETSIKey> parseKeys(String json, int defaultSizeBits) throws IOException {
+    static List<ETSIKey> parseKeys(String json, int requestedSizeBits) throws IOException {
         List<ETSIKey> result = new ArrayList<>();
         for (Object item : Json.array(parseResponse(json), "keys")) {
             if (!(item instanceof Map)) continue;
@@ -140,8 +147,21 @@ public class ETSI014Client {
                 keyBytes = Base64.getDecoder().decode(rawKey);
             } catch (IllegalArgumentException e) {
                 keyBytes = hexStringToByteArray(rawKey);
+                if (keyBytes == null) {
+                    throw new IOException("ETSI KMS returned key " + keyId + " that is neither base64 nor hex");
+                }
             }
-            int sizeBits = (defaultSizeBits > 0) ? defaultSizeBits : keyBytes.length * 8;
+            if (keyBytes.length == 0) {
+                throw new IOException("ETSI KMS returned an empty key " + keyId);
+            }
+            // A key of the wrong size is a protocol error: reporting the
+            // requested size for it would hide a misbehaving KMS. Sizes are
+            // in bits, so a 100-bit key arrives as 13 bytes.
+            if (requestedSizeBits > 0 && keyBytes.length != (requestedSizeBits + 7) / 8) {
+                throw new IOException("ETSI KMS returned key " + keyId + " of " + keyBytes.length
+                        + " bytes, requested " + requestedSizeBits + " bits");
+            }
+            int sizeBits = requestedSizeBits > 0 ? requestedSizeBits : keyBytes.length * 8;
             result.add(new ETSIKey(keyId, keyBytes, sizeBits));
         }
         return result;
@@ -170,12 +190,16 @@ public class ETSI014Client {
         return out.toString();
     }
 
+    /** Decode hex, or return null when s is not hex (odd length or a non-hex digit). */
     private static byte[] hexStringToByteArray(String s) {
         int len = s.length();
+        if (len % 2 != 0) return null;
         byte[] data = new byte[len / 2];
         for (int i = 0; i < len; i += 2) {
-            data[i / 2] = (byte) ((Character.digit(s.charAt(i), 16) << 4)
-                    + Character.digit(s.charAt(i + 1), 16));
+            int hi = Character.digit(s.charAt(i), 16);
+            int lo = Character.digit(s.charAt(i + 1), 16);
+            if (hi < 0 || lo < 0) return null;
+            data[i / 2] = (byte) ((hi << 4) + lo);
         }
         return data;
     }
