@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'com.qids'
-version = '1.4.0'
+version = '1.4.1'
 
 java {
     toolchain {
@@ -15,6 +15,10 @@ java {
 }
 
 repositories {
+    // Maven Central's Google-hosted mirror first: Maven Central answered
+    // JitPack's build host with HTTP 429 for bcprov, and Gradle does not fall
+    // back to the next repository on an error, so v1.4.0 never built there.
+    maven { url 'https://maven-central.storage-download.googleapis.com/maven2/' }
     mavenCentral()
 }
 
