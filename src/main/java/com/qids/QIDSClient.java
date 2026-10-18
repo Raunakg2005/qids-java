@@ -2,9 +2,11 @@ package com.qids;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -142,6 +144,36 @@ public class QIDSClient {
     }
 
     /**
+     * A tenant's ML-DSA public keys (active first, then retired) from the
+     * gateway. The endpoint is public: no API key is needed, and the client's
+     * key is sent only if it has one.
+     *
+     * Fetch once and pin the key you trust: {@link PQCVerifier#verifyPqcReceipt}
+     * should not be given a key fetched alongside each receipt.
+     */
+    public List<PQCPublicKey> getPqcKeys(String tenantId) throws IOException, InterruptedException {
+        String path = URLEncoder.encode(tenantId, StandardCharsets.UTF_8).replace("+", "%20");
+        HttpRequest.Builder builder = HttpRequest.newBuilder()
+                .uri(URI.create(serviceUrl + "/api/v1/pqc/keys/" + path))
+                .timeout(timeout)
+                .GET()
+                .header("Accept", "application/json");
+        if (apiKey != null && !apiKey.isBlank()) builder.header("Authorization", "Bearer " + apiKey);
+        HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() != 200) {
+            throw QIDSException.fromResponse("pqc keys", response);
+        }
+        List<PQCPublicKey> keys = new ArrayList<>();
+        for (Object item : Json.array(parseResponse(response.body()), "keys")) {
+            if (!(item instanceof Map)) continue;
+            @SuppressWarnings("unchecked")
+            Map<String, Object> key = (Map<String, Object>) item;
+            keys.add(PQCPublicKey.fromJson(key));
+        }
+        return keys;
+    }
+
+    /**
      * Authenticated JSON POST with the client's timeout. Returns the body of a
      * 200 response; any other status throws a {@link QIDSException} (401, 403
      * and 429 as its typed subclasses).
@@ -222,6 +254,12 @@ public class QIDSClient {
         }
         res.setEntropySource(sources);
         res.setQkdBacked(Json.isTrue(obj, "qkd_backed"));
+        Object pqc = obj.get("pqc");
+        if (pqc instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> receipt = (Map<String, Object>) pqc;
+            res.setPqc(PQCReceipt.fromJson(receipt));
+        }
         return res;
     }
 

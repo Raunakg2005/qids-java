@@ -1,11 +1,13 @@
 # QIDS Java SDK (`qids-java`)
 
-[![Version](https://img.shields.io/badge/version-v1.3.5-blue.svg)](https://github.com/Raunakg2005/qids-java)
+[![Version](https://img.shields.io/badge/version-v1.4.0-blue.svg)](https://github.com/Raunakg2005/qids-java)
 [![License](https://img.shields.io/badge/license-Proprietary-red.svg)](LICENSE)
 [![Java](https://img.shields.io/badge/Java-17%2B-orange.svg)](https://openjdk.org/)
 [![JitPack](https://jitpack.io/v/Raunakg2005/qids-java.svg)](https://jitpack.io/#Raunakg2005/qids-java)
 
-Java 17+ client for **Quantum Digital Signatures through a QIDS gateway**, plus an ETSI GS QKD 014 key-management client and Wald SPRT link monitoring.
+Java 17+ client for **Quantum Digital Signatures through a QIDS gateway**, with offline verification of the gateway's ML-DSA (FIPS 204) receipt signatures, an ETSI GS QKD 014 key-management client and Wald SPRT link monitoring.
+
+From v1.4.0 the SDK depends on Bouncy Castle (`org.bouncycastle:bcprov-jdk18on`) for ML-DSA; it uses the lightweight API and registers no JCA provider.
 
 Signing and verification run on the gateway: the one-time universal-hash key is what makes a tag unforgeable, so a client able to compute tags locally could also forge them. `QIDSClient` authenticates with your API key and sends each payload as its exact bytes.
 
@@ -22,7 +24,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.github.Raunakg2005:qids-java:v1.3.5'
+    implementation 'com.github.Raunakg2005:qids-java:v1.4.0'
 }
 ```
 
@@ -40,7 +42,7 @@ dependencies {
     <dependency>
         <groupId>com.github.Raunakg2005</groupId>
         <artifactId>qids-java</artifactId>
-        <version>v1.3.5</version>
+        <version>v1.4.0</version>
     </dependency>
 </dependencies>
 ```
@@ -98,7 +100,32 @@ try {
 }
 ```
 
-### 2. ETSI GS QKD 014 key delivery client
+### 2. Verify a receipt offline (ML-DSA, FIPS 204)
+
+From gateway 1.4.0, every sign response carries `getPqc()`: an ML-DSA signature over a statement about the document (tenant, document id, SHA3-256 hash, time, recipients, OTUH signature). Anyone with the tenant's public key can check it without contacting the gateway:
+
+```java
+import com.qids.PQCClaims;
+import com.qids.PQCVerifier;
+import com.qids.QIDSVerificationException;
+
+// Once: fetch the tenant's public key and pin it (store it with your config).
+String pinnedPem = client.getPqcKeys(tenantId).get(0).getPublicKeyPem(); // public endpoint; active key first
+
+// Any time later, offline:
+try {
+    PQCClaims claims = PQCVerifier.verifyPqcReceipt(payload, sig.getPqc(), pinnedPem, tenantId);
+    System.out.println(claims.getDocumentId() + " signed at " + claims.getSignedAtMs());
+} catch (QIDSVerificationException e) {
+    System.out.println("rejected: " + e.getReason().code()); // bad_signature, document_mismatch, tenant_mismatch, ...
+}
+```
+
+`verifyPqcReceipt` checks the signature over the statement's exact bytes under the FIPS 204 context `qids-receipt-v1`, that the statement names this key (its id is the first 32 hex characters of SHA-256 over the raw key) and its parameter set (ML-DSA-44, -65 or -87), that the statement's `document_hash` is the SHA3-256 of `payload`, and the tenant (pass `null` to skip). A failure throws `QIDSVerificationException` (a `GeneralSecurityException`) whose `getReason()` names the check.
+
+Take the public key from a source you trust, fetched once and pinned, never from the response you are checking. What the signature proves: the holder of the tenant's QIDS signing key attested this document at this time. The gateway holds that key on the tenant's behalf, so it is the gateway's attestation for the tenant.
+
+### 3. ETSI GS QKD 014 key delivery client
 
 ```java
 import com.qids.ETSI014Client;
@@ -123,7 +150,7 @@ public class KeyConsumer {
 
 A key that is neither base64 nor hex, or whose size differs from the one requested, throws `IOException` rather than being returned short.
 
-### 3. Wald SPRT link monitor
+### 4. Wald SPRT link monitor
 
 ```java
 import com.qids.WaldSPRT;
