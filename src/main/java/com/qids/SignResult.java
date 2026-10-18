@@ -17,6 +17,7 @@ public class SignResult {
     private String algorithm;
     private List<String> entropySource = new ArrayList<>();
     private boolean qkdBacked;
+    private PQCReceipt pqc;
 
     public SignResult() {}
 
@@ -55,4 +56,12 @@ public class SignResult {
     /** True only when the key came from an ETSI GS QKD 014 KMS that is not a mock. */
     public boolean isQkdBacked() { return qkdBacked; }
     public void setQkdBacked(boolean qkdBacked) { this.qkdBacked = qkdBacked; }
+
+    /**
+     * The receipt's ML-DSA (FIPS 204) signature, which anyone can check
+     * offline with {@link PQCVerifier#verifyPqcReceipt} and the tenant's
+     * published key. Null from a gateway older than 1.4.0.
+     */
+    public PQCReceipt getPqc() { return pqc; }
+    public void setPqc(PQCReceipt pqc) { this.pqc = pqc; }
 }
