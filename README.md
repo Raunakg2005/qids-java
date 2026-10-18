@@ -1,6 +1,6 @@
 # QIDS Java SDK (`qids-java`)
 
-[![Version](https://img.shields.io/badge/version-v1.4.0-blue.svg)](https://github.com/Raunakg2005/qids-java)
+[![Version](https://img.shields.io/badge/version-v1.4.1-blue.svg)](https://github.com/Raunakg2005/qids-java)
 [![License](https://img.shields.io/badge/license-Proprietary-red.svg)](LICENSE)
 [![Java](https://img.shields.io/badge/Java-17%2B-orange.svg)](https://openjdk.org/)
 [![JitPack](https://jitpack.io/v/Raunakg2005/qids-java.svg)](https://jitpack.io/#Raunakg2005/qids-java)
@@ -24,7 +24,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.github.Raunakg2005:qids-java:v1.4.0'
+    implementation 'com.github.Raunakg2005:qids-java:v1.4.1'
 }
 ```
 
@@ -42,7 +42,7 @@ dependencies {
     <dependency>
         <groupId>com.github.Raunakg2005</groupId>
         <artifactId>qids-java</artifactId>
-        <version>v1.4.0</version>
+        <version>v1.4.1</version>
     </dependency>
 </dependencies>
 ```
