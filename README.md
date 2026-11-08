@@ -1,6 +1,6 @@
 # QIDS Java SDK (`qids-java`)
 
-[![Version](https://img.shields.io/badge/version-v1.4.1-blue.svg)](https://github.com/Raunakg2005/qids-java)
+[![Version](https://img.shields.io/badge/version-v1.5.0-blue.svg)](https://github.com/Raunakg2005/qids-java)
 [![License](https://img.shields.io/badge/license-Proprietary-red.svg)](LICENSE)
 [![Java](https://img.shields.io/badge/Java-17%2B-orange.svg)](https://openjdk.org/)
 [![JitPack](https://jitpack.io/v/Raunakg2005/qids-java.svg)](https://jitpack.io/#Raunakg2005/qids-java)
@@ -24,7 +24,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.github.Raunakg2005:qids-java:v1.4.1'
+    implementation 'com.github.Raunakg2005:qids-java:v1.5.0'
 }
 ```
 
@@ -42,7 +42,7 @@ dependencies {
     <dependency>
         <groupId>com.github.Raunakg2005</groupId>
         <artifactId>qids-java</artifactId>
-        <version>v1.4.1</version>
+        <version>v1.5.0</version>
     </dependency>
 </dependencies>
 ```
@@ -125,7 +125,30 @@ try {
 
 Take the public key from a source you trust, fetched once and pinned, never from the response you are checking. What the signature proves: the holder of the tenant's QIDS signing key attested this document at this time. The gateway holds that key on the tenant's behalf, so it is the gateway's attestation for the tenant.
 
-### 3. ETSI GS QKD 014 key delivery client
+### 3. Prove a receipt is in the transparency log
+
+From gateway 1.5.0 every receipt also goes into its tenant's append-only Merkle log, built as RFC 9162 specifies. A signed tree head commits to the whole log; an inclusion proof shows a receipt is in it; a consistency proof shows a later tree head extends an earlier one, so an entry rewritten or removed, or a log shown differently to different people, is detected. All of it is checked offline, against the tenant's pinned key.
+
+```java
+QIDSClient reader = new QIDSClient(gatewayUrl, "monitor", (String) null); // the log routes are public
+TransparencyLog.TreeHeadClaims head =
+        TransparencyLog.verifyTreeHead(reader.getTreeHead(tenantId), pinnedPem, tenantId);
+
+byte[] leaf = TransparencyLog.receiptLeafHash(sig.getPqc());
+TransparencyLog.InclusionProof proof = reader.getInclusionProof(tenantId, leaf, head.getTreeSize());
+TransparencyLog.verifyInclusion(leaf, proof.getIndex(), head.getTreeSize(),
+        TransparencyLog.decodeHashes(proof.getAuditPath()), TransparencyLog.unhex(head.getRootHash()));
+
+// Later: the log grew. Check it extends the tree head you kept.
+TransparencyLog.ConsistencyProof cons = reader.getConsistencyProof(tenantId, kept.getTreeSize(), head.getTreeSize());
+TransparencyLog.verifyConsistency(kept.getTreeSize(), head.getTreeSize(),
+        TransparencyLog.unhex(kept.getRootHash()), TransparencyLog.unhex(head.getRootHash()),
+        TransparencyLog.decodeHashes(cons.getProof()));
+```
+
+A failure throws `QIDSVerificationException` whose `getReason()` names the check (`ROOT_MISMATCH`, `INCONSISTENT`, `FORK`, ...). Tree heads are signed by the gateway itself; independent witnesses that co-sign them are on the roadmap. Keep the last tree head you verified and check consistency from it to the next: that is what catches a rewrite.
+
+### 4. ETSI GS QKD 014 key delivery client
 
 ```java
 import com.qids.ETSI014Client;
@@ -150,7 +173,7 @@ public class KeyConsumer {
 
 A key that is neither base64 nor hex, or whose size differs from the one requested, throws `IOException` rather than being returned short.
 
-### 4. Wald SPRT link monitor
+### 5. Wald SPRT link monitor
 
 ```java
 import com.qids.WaldSPRT;

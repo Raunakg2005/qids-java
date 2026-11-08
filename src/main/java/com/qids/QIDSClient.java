@@ -173,6 +173,63 @@ public class QIDSClient {
         return keys;
     }
 
+    /** GET a public transparency-log route (no API key needed) and parse its JSON body. */
+    private Map<String, Object> getTlog(String op, String tenantId, String what, String query)
+            throws IOException, InterruptedException {
+        String tenant = URLEncoder.encode(tenantId, StandardCharsets.UTF_8).replace("+", "%20");
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(serviceUrl + "/api/v1/tlog/" + tenant + "/" + what + (query.isEmpty() ? "" : "?" + query)))
+                .timeout(timeout)
+                .GET()
+                .header("Accept", "application/json")
+                .build();
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() != 200) {
+            throw QIDSException.fromResponse(op, response);
+        }
+        return parseResponse(response.body());
+    }
+
+    private static List<String> strings(Map<String, Object> obj, String key) {
+        List<String> out = new ArrayList<>();
+        for (Object o : Json.array(obj, key)) out.add(String.valueOf(o));
+        return out;
+    }
+
+    /**
+     * The tenant's current signed tree head. Check it with
+     * {@link TransparencyLog#verifyTreeHead} and the tenant's pinned key before
+     * trusting its root.
+     */
+    public TransparencyLog.SignedTreeHead getTreeHead(String tenantId) throws IOException, InterruptedException {
+        return TransparencyLog.SignedTreeHead.fromJson(getTlog("tree head", tenantId, "sth", ""));
+    }
+
+    /**
+     * The inclusion proof of a receipt's leaf ({@link TransparencyLog#receiptLeafHash})
+     * in the tree of {@code treeSize} entries; check it with
+     * {@link TransparencyLog#verifyInclusion} against a verified tree head's root.
+     */
+    public TransparencyLog.InclusionProof getInclusionProof(String tenantId, byte[] leafHash, long treeSize)
+            throws IOException, InterruptedException {
+        Map<String, Object> body = getTlog("inclusion proof", tenantId, "inclusion",
+                "leaf_hash=" + TransparencyLog.hex(leafHash) + "&tree_size=" + treeSize);
+        return new TransparencyLog.InclusionProof(Json.number(body, "index", -1L), Json.number(body, "tree_size", 0L),
+                Json.string(body, "leaf_hash", ""), strings(body, "audit_path"));
+    }
+
+    /**
+     * The consistency proof between two tree sizes; check it with
+     * {@link TransparencyLog#verifyConsistency} against two verified tree heads' roots.
+     */
+    public TransparencyLog.ConsistencyProof getConsistencyProof(String tenantId, long first, long second)
+            throws IOException, InterruptedException {
+        Map<String, Object> body = getTlog("consistency proof", tenantId, "consistency",
+                "first=" + first + "&second=" + second);
+        return new TransparencyLog.ConsistencyProof(Json.number(body, "first", 0L), Json.number(body, "second", 0L),
+                strings(body, "proof"));
+    }
+
     /**
      * Authenticated JSON POST with the client's timeout. Returns the body of a
      * 200 response; any other status throws a {@link QIDSException} (401, 403
