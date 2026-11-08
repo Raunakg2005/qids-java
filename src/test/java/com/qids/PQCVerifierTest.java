@@ -80,8 +80,10 @@ class PQCVerifierTest {
             if ("valid".equals(v.get("expect"))) algorithms.add(Json.string(Json.object(v, "pqc"), "algorithm", ""));
             else reasons.add(Json.string(v, "reason", ""));
         }
+        // The receipt checks; the enum's other reasons belong to TransparencyLog.
         Set<String> all = new HashSet<>();
-        for (QIDSVerificationException.Reason r : EnumSet.allOf(QIDSVerificationException.Reason.class)) {
+        for (QIDSVerificationException.Reason r : EnumSet.range(QIDSVerificationException.Reason.INVALID_KEY,
+                QIDSVerificationException.Reason.TENANT_MISMATCH)) {
             all.add(r.code());
         }
         assertEquals(all, reasons);
