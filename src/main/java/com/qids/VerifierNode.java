@@ -51,26 +51,46 @@ public class VerifierNode {
             }
             b.header("Authorization", "Bearer " + token);
         }
-        return http.send(b.build(), HttpResponse.BodyHandlers.ofString());
+        return Http.send(http, b.build(), timeout);
     }
 
-    /** Hand the node an envelope. True if it stored it; false if it refused it. */
+    /**
+     * Hand the node an envelope. True if it stored it; false if it refused it
+     * (HTTP 400). Any other answer (no node at that URL, a 404, a 5xx, a 200
+     * without {@code "stored": true}) throws.
+     */
     public boolean deliver(Map<String, Object> envelope) throws IOException, InterruptedException {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("envelope", envelope);
         HttpResponse<String> resp = post("/v1/qds/signatures", body, false);
-        if (resp.statusCode() >= 500) throw QIDSException.fromResponse("qds deliver", resp);
-        return Json.isTrue(Json.parseObject(resp.body()), "stored");
+        if (resp.statusCode() == 400) return false;
+        if (resp.statusCode() != 200) throw QIDSException.fromResponse("qds deliver", resp);
+        if (!Json.isTrue(Json.parseObject(resp.body()), "stored")) {
+            throw new IOException("qds deliver: HTTP 200 without \"stored\": true");
+        }
+        return true;
     }
 
-    /** The node's verdict on {@code document} under {@code envelope}. */
+    /**
+     * The node's verdict on {@code document} under {@code envelope}. The node
+     * binds its key to the first document it is asked about, for good, so a
+     * null or empty document is refused here, before anything is sent: a
+     * null used to go out as the empty document and burn the signature for
+     * every holder.
+     */
     public QDSVerdict verify(byte[] document, Map<String, Object> envelope) throws IOException, InterruptedException {
+        if (document == null || document.length == 0) {
+            throw new IllegalArgumentException("the document to verify is null or empty");
+        }
         Map<String, Object> body = new LinkedHashMap<>();
-        body.put("document_b64", Base64.getEncoder().encodeToString(document != null ? document : new byte[0]));
+        body.put("document_b64", Base64.getEncoder().encodeToString(document));
         body.put("envelope", envelope);
         HttpResponse<String> resp = post("/v1/qds/verify", body, true);
         if (resp.statusCode() != 200) throw QIDSException.fromResponse("qds verify", resp);
         Map<String, Object> out = Json.parseObject(resp.body());
+        if (!(out.get("accepted") instanceof Boolean)) {
+            throw new IOException("qds verify: the answer has no boolean \"accepted\"");
+        }
         return new QDSVerdict(Json.string(out, "holder", ""), Json.string(out, "sig_id", ""),
                 Json.isTrue(out, "accepted"), Json.string(out, "reason", ""), Json.string(out, "detail", ""));
     }
