@@ -89,13 +89,93 @@ class QDSTest {
         try {
             String url = "http://127.0.0.1:" + server.getAddress().getPort();
             assertTrue(new VerifierNode(url, null).deliver(new LinkedHashMap<>()));
-            assertThrows(IllegalStateException.class, () -> new VerifierNode(url, "").verify(new byte[0], Map.of()));
-            assertThrows(QIDSException.Unauthorized.class, () -> new VerifierNode(url, "wrong").verify(new byte[0], Map.of()));
+            assertThrows(IllegalStateException.class, () -> new VerifierNode(url, "").verify(new byte[] {1}, Map.of()));
+            assertThrows(QIDSException.Unauthorized.class, () -> new VerifierNode(url, "wrong").verify(new byte[] {1}, Map.of()));
             QDSVerdict v = new VerifierNode(url, "op").verify(new byte[] {1}, Map.of());
             assertTrue(v.isAccepted());
             assertEquals("bob", v.getHolder());
         } finally {
             server.stop(0);
+        }
+    }
+
+    // -- the end-of-phase audit (gateway audit 2.84) ---------------------------------------
+
+    private static HttpServer stub(int status, String body, boolean stallBody) throws IOException {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/", ex -> {
+            byte[] b = body.getBytes(StandardCharsets.UTF_8);
+            ex.sendResponseHeaders(status, stallBody ? b.length + 100 : b.length);
+            OutputStream os = ex.getResponseBody();
+            os.write(b);
+            os.flush();
+            if (stallBody) {
+                try {
+                    Thread.sleep(20_000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            os.close();
+        });
+        server.start();
+        return server;
+    }
+
+    private static String url(HttpServer s) {
+        return "http://127.0.0.1:" + s.getAddress().getPort();
+    }
+
+    @Test
+    void aNullOrEmptyDocumentIsRefusedBeforeAnythingIsSent() throws Exception {
+        HttpServer server = stub(200, "{}", false);
+        try {
+            assertThrows(IllegalArgumentException.class, () -> new VerifierNode(url(server), "op").verify(null, Map.of()));
+            assertThrows(IllegalArgumentException.class, () -> new VerifierNode(url(server), "op").verify(new byte[0], Map.of()));
+            assertThrows(IllegalStateException.class, () -> new VerifierNode(url(server), "   ").verify(new byte[] {1}, Map.of()));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void theTimeoutCoversTheBody() throws Exception {
+        HttpServer server = stub(200, "{\"accepted\":true", true);
+        try {
+            long t = System.nanoTime();
+            assertThrows(java.net.http.HttpTimeoutException.class, () ->
+                    new VerifierNode(url(server), "op", java.time.Duration.ofSeconds(2)).verify(new byte[] {1}, Map.of()));
+            assertTrue((System.nanoTime() - t) / 1e9 < 6, "the call outlived its timeout");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void answersThatAreNotVerdictsAreErrors() throws Exception {
+        for (String[] c : new String[][] {{"200", "{\"reason\":\"ok\"}"}, {"200", "{\"accepted\":\"false\"}"},
+                {"200", "<html>"}, {"404", "{\"error\":\"Not found\"}"}}) {
+            HttpServer server = stub(Integer.parseInt(c[0]), c[1], false);
+            try {
+                assertThrows(Exception.class, () -> new VerifierNode(url(server), "op").verify(new byte[] {1}, Map.of()),
+                        c[0] + " " + c[1]);
+            } finally {
+                server.stop(0);
+            }
+        }
+        HttpServer refused = stub(400, "{\"stored\":false,\"reason\":\"envelope_unauthentic\"}", false);
+        try {
+            assertFalse(new VerifierNode(url(refused), null).deliver(new LinkedHashMap<>()));
+        } finally {
+            refused.stop(0);
+        }
+        for (String[] c : new String[][] {{"404", "{\"error\":\"Not found\"}"}, {"200", "{\"stored\":false}"}}) {
+            HttpServer server = stub(Integer.parseInt(c[0]), c[1], false);
+            try {
+                assertThrows(Exception.class, () -> new VerifierNode(url(server), null).deliver(new LinkedHashMap<>()));
+            } finally {
+                server.stop(0);
+            }
         }
     }
 

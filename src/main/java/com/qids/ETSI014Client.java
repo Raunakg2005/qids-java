@@ -56,7 +56,7 @@ public class ETSI014Client {
                 .header("Accept", "application/json")
                 .build();
 
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = Http.send(httpClient, request, timeout);
         if (response.statusCode() != 200) {
             throw new IOException("ETSI KMS returned HTTP " + response.statusCode() + ": " + response.body());
         }
@@ -88,7 +88,7 @@ public class ETSI014Client {
                 .header("Accept", "application/json")
                 .build();
 
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = Http.send(httpClient, request, timeout);
         if (response.statusCode() != 200) {
             throw new IOException("ETSI KMS enc_keys returned HTTP " + response.statusCode() + ": " + response.body());
         }
@@ -117,7 +117,7 @@ public class ETSI014Client {
                 .header("Accept", "application/json")
                 .build();
 
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = Http.send(httpClient, request, timeout);
         if (response.statusCode() != 200) {
             throw new IOException("ETSI KMS dec_keys returned HTTP " + response.statusCode() + ": " + response.body());
         }

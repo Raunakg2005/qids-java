@@ -179,7 +179,7 @@ public class QIDSClient {
                 .GET()
                 .header("Accept", "application/json");
         if (apiKey != null && !apiKey.isBlank()) builder.header("Authorization", "Bearer " + apiKey);
-        HttpResponse<String> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = Http.send(httpClient, builder.build(), timeout);
         if (response.statusCode() != 200) {
             throw QIDSException.fromResponse("pqc keys", response);
         }
@@ -203,7 +203,7 @@ public class QIDSClient {
                 .GET()
                 .header("Accept", "application/json")
                 .build();
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = Http.send(httpClient, request, timeout);
         if (response.statusCode() != 200) {
             throw QIDSException.fromResponse(op, response);
         }
@@ -265,7 +265,7 @@ public class QIDSClient {
                 .header("Authorization", "Bearer " + (apiKey == null ? "" : apiKey))
                 .build();
 
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        HttpResponse<String> response = Http.send(httpClient, request, timeout);
         if (response.statusCode() != 200) {
             throw QIDSException.fromResponse(op, response);
         }
