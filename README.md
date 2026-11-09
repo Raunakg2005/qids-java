@@ -196,6 +196,20 @@ public class OpticalMonitor {
 
 ---
 
+## QDS mode: no trusted dealer (preview)
+
+With a gateway configured for QDS mode, the gateway keeps no share: each
+recipient verifies on its own verifier node. Not in a gateway release yet.
+
+```java
+QDSSignResult signed = client.qdsSign("invoice-7", document, List.of("SAE_Bob", "SAE_Charlie"));
+// signed.getDelivered(): {SAE_Bob=stored, ...}; signed.getPqc(): the ML-DSA receipt
+
+// At Bob's organisation, on Bob's own node, with its operator token:
+QDSVerdict v = new VerifierNode("https://verifier.bob.example:8090", bobToken).verify(document, signed.getEnvelope());
+// v.isAccepted(), v.getReason()
+```
+
 ## Building from source
 
 ```bash

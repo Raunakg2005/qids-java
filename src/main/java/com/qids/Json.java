@@ -83,6 +83,74 @@ final class Json {
         return v instanceof List ? (List<Object>) v : new ArrayList<>();
     }
 
+    // -- writer --------------------------------------------------------------
+
+    /**
+     * Serialise what {@link #parse} returns (maps, lists, strings, numbers,
+     * booleans, null) back to JSON. Doubles are written with
+     * {@link Double#toString}, which round-trips exactly: a QDS envelope is
+     * sent back to a verifier node that re-encodes it canonically to check
+     * the signer's tag, so a float must come back bit for bit.
+     */
+    static String write(Object value) {
+        StringBuilder out = new StringBuilder();
+        write(value, out);
+        return out.toString();
+    }
+
+    private static void write(Object v, StringBuilder out) {
+        if (v == null) {
+            out.append("null");
+        } else if (v instanceof String) {
+            writeString((String) v, out);
+        } else if (v instanceof Boolean) {
+            out.append(((Boolean) v) ? "true" : "false");
+        } else if (v instanceof Double || v instanceof Float) {
+            double d = ((Number) v).doubleValue();
+            if (Double.isNaN(d) || Double.isInfinite(d)) throw new IllegalArgumentException("not a JSON number: " + d);
+            out.append(Double.toString(d));
+        } else if (v instanceof Number) {
+            out.append(((Number) v).longValue());
+        } else if (v instanceof Map) {
+            out.append('{');
+            boolean first = true;
+            for (Map.Entry<?, ?> e : ((Map<?, ?>) v).entrySet()) {
+                if (!first) out.append(',');
+                first = false;
+                writeString(String.valueOf(e.getKey()), out);
+                out.append(':');
+                write(e.getValue(), out);
+            }
+            out.append('}');
+        } else if (v instanceof List) {
+            out.append('[');
+            boolean first = true;
+            for (Object item : (List<?>) v) {
+                if (!first) out.append(',');
+                first = false;
+                write(item, out);
+            }
+            out.append(']');
+        } else {
+            throw new IllegalArgumentException("cannot write " + v.getClass().getName() + " as JSON");
+        }
+    }
+
+    private static void writeString(String s, StringBuilder out) {
+        out.append('"');
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '"' || c == '\\') {
+                out.append('\\').append(c);
+            } else if (c < 0x20) {
+                out.append(String.format("\\u%04x", (int) c));
+            } else {
+                out.append(c);
+            }
+        }
+        out.append('"');
+    }
+
     // -- parser --------------------------------------------------------------
 
     private Object readValue() {
