@@ -106,6 +106,26 @@ public class QIDSClient {
     }
 
     /**
+     * Sign in QDS mode (POST /api/v1/qds/sign): no trusted dealer. Needs a
+     * gateway configured for QDS and at least two holders, each running a
+     * verifier node. Never retried: on a dropped connection, send it again
+     * with the same docId, and HTTP 409 means it was signed.
+     */
+    public QDSSignResult qdsSign(String docId, byte[] payload, List<String> holders)
+            throws IOException, InterruptedException {
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("document_id", docId);
+        body.put("payload_b64", Base64.getEncoder().encodeToString(payload != null ? payload : new byte[0]));
+        body.put("holders", new ArrayList<Object>(holders));
+        Map<String, Object> obj = parseResponse(post("qds sign", serviceUrl + "/api/v1/qds/sign", Json.write(body)));
+        Map<String, Object> pqc = Json.object(obj, "pqc");
+        return new QDSSignResult(Json.string(obj, "document_id", docId), Json.string(obj, "document_hash", ""),
+                Json.string(obj, "sig_id", ""), Json.object(obj, "envelope"), Json.object(obj, "delivered"),
+                Json.number(obj, "signed_at_utc_ms", 0L), Json.array(obj, "entropy_source"),
+                Json.isTrue(obj, "qkd_backed"), pqc.isEmpty() ? null : PQCReceipt.fromJson(pqc));
+    }
+
+    /**
      * Verify one recipient's signature tag, as returned by {@link #sign}. The
      * tag is presented as its recipient (recipient_sae_id), so each
      * recipient's verification is attributed to that recipient rather than
