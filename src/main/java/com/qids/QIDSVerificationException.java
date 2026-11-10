@@ -3,8 +3,8 @@ package com.qids;
 import java.security.GeneralSecurityException;
 
 /**
- * A receipt, tree head or proof that failed an offline check in
- * {@link PQCVerifier#verifyPqcReceipt} or {@link TransparencyLog}.
+ * A receipt, tree head, proof or co-signature that failed an offline check in
+ * {@link PQCVerifier#verifyPqcReceipt}, {@link TransparencyLog} or {@link Witnesses}.
  * {@link #getReason()} names the check.
  *
  * Copyright (c) 2026 QIDS. All Rights Reserved.
@@ -44,7 +44,15 @@ public class QIDSVerificationException extends GeneralSecurityException {
         /** Two sizes and no consistency proof. */
         EMPTY_PROOF("empty_proof"),
         /** A consistency proof does not lead to both roots: the log forked or an entry changed. */
-        INCONSISTENT("inconsistent");
+        INCONSISTENT("inconsistent"),
+        /** A co-signature is malformed, or does not verify under the witness key and context. */
+        BAD_COSIGNATURE("bad_cosignature"),
+        /** A co-signature names another witness, or another head, tenant or log key. */
+        COSIGNATURE_MISMATCH("cosignature_mismatch"),
+        /** A trusted witness key is the log's own key, which the operator holds. */
+        WITNESS_IS_LOG_KEY("witness_is_log_key"),
+        /** No tree head has the quorum of valid co-signatures from distinct trusted witnesses. */
+        QUORUM_NOT_MET("quorum_not_met");
 
         private final String code;
 

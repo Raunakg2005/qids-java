@@ -5,7 +5,7 @@
 
     <groupId>com.qids</groupId>
     <artifactId>qids-java</artifactId>
-    <version>1.6.1</version>
+    <version>1.7.0</version>
     <packaging>jar</packaging>
 
     <name>QIDS Java SDK</name>

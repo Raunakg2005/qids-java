@@ -226,6 +226,16 @@ public class QIDSClient {
     }
 
     /**
+     * The tree heads witnesses co-signed, with their co-signatures (GET
+     * /api/v1/tlog/&lt;tenant&gt;/cosigned; no API key). Check them with
+     * {@link Witnesses#verifyCosignedTreeHead}, the tenant's pinned key and
+     * the witness keys you trust.
+     */
+    public Witnesses.CosignedTreeHeads getCosignedTreeHead(String tenantId) throws IOException, InterruptedException {
+        return Witnesses.CosignedTreeHeads.fromJson(getTlog("co-signed tree head", tenantId, "cosigned", ""));
+    }
+
+    /**
      * The inclusion proof of a receipt's leaf ({@link TransparencyLog#receiptLeafHash})
      * in the tree of {@code treeSize} entries; check it with
      * {@link TransparencyLog#verifyInclusion} against a verified tree head's root.
