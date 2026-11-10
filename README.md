@@ -146,7 +146,24 @@ TransparencyLog.verifyConsistency(kept.getTreeSize(), head.getTreeSize(),
         TransparencyLog.decodeHashes(cons.getProof()));
 ```
 
-A failure throws `QIDSVerificationException` whose `getReason()` names the check (`ROOT_MISMATCH`, `INCONSISTENT`, `FORK`, ...). Tree heads are signed by the gateway itself; independent witnesses that co-sign them are on the roadmap. Keep the last tree head you verified and check consistency from it to the next: that is what catches a rewrite.
+A failure throws `QIDSVerificationException` whose `getReason()` names the check (`ROOT_MISMATCH`, `INCONSISTENT`, `FORK`, ...). Keep the last tree head you verified and check consistency from it to the next: that is what catches a rewrite.
+
+### Witnessed tree heads
+
+Tree heads are signed with the tenant's key, which the gateway's operator holds, so the operator could show you one history and someone else another. Independent witnesses (`python -m qids.witness` in the Python package) co-sign a head only if it extends the last one they co-signed. Require co-signatures from enough witnesses you trust, and the head you accept is on the one history they all saw:
+
+```java
+Witnesses.CosignedTreeHeadClaims head = Witnesses.verifyCosignedTreeHead(
+        reader.getCosignedTreeHead(tenantId),
+        pinnedPem,                                // the tenant's key, pinned
+        List.of(witnessA, witnessB, witnessC),    // the witnesses' ML-DSA-65 public keys, pinned
+        2,                                        // the quorum
+        tenantId);
+// head.getTreeSize(), head.getRootHash(): check inclusion and consistency against these.
+// head.getWitnesses(): who co-signed; head.getCosignedAtMs(): how fresh, by their clocks.
+```
+
+It takes the largest head that the quorum co-signed (on a busy log the newest may have only some of them yet), and counts each witness once. It refuses a witness key that is the log's own key (`WITNESS_IS_LOG_KEY`): the operator holds that one. With fewer valid co-signatures than the quorum it throws `QUORUM_NOT_MET`. This holds only while fewer than the quorum of the witnesses you trust are dishonest; who runs them is your decision. `Witnesses.verifyCosignature` checks one co-signature.
 
 ### 4. ETSI GS QKD 014 key delivery client
 
@@ -196,10 +213,11 @@ public class OpticalMonitor {
 
 ---
 
-## QDS mode: no trusted dealer (preview)
+## QDS mode: no trusted dealer (beta)
 
 With a gateway configured for QDS mode, the gateway keeps no share: each
-recipient verifies on its own verifier node. Not in a gateway release yet.
+recipient verifies on its own verifier node. A beta, in gateway 2.0.0b1:
+the protocol awaits external review, and has run against a mock KME only.
 
 ```java
 QDSSignResult signed = client.qdsSign("invoice-7", document, List.of("SAE_Bob", "SAE_Charlie"));
